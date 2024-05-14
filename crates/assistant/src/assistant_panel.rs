@@ -1923,6 +1923,10 @@ impl Conversation {
                 content: self.ambient_context.recent_buffers.message.clone(),
             })
             .into_iter()
+            .chain([LanguageModelRequestMessage {
+                role: Role::System,
+                content: include_str!("./system_prompts/edits.md").to_string(),
+            }])
             .chain(
                 self.messages(cx)
                     .filter(|message| matches!(message.status, MessageStatus::Done))
