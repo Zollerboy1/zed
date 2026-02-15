@@ -4235,6 +4235,13 @@ impl ProjectPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !selections.originates_from(&self.workspace) {
+            if let Some(paths) = selections.project_paths(cx) {
+                self.drop_external_files(&paths, target_entry_id, window, cx);
+            }
+            return;
+        }
+
         let resolved_selections = selections
             .items()
             .map(|entry| SelectedEntry {
@@ -5036,6 +5043,7 @@ impl ProjectPanel {
         let depth = details.depth;
         let worktree_id = details.worktree_id;
         let dragged_selection = DraggedSelection {
+            workspace: self.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id: selection.worktree_id,
                 entry_id: selection.entry_id,
@@ -5236,7 +5244,10 @@ impl ProjectPanel {
 
                             if drag_state.items().count() == 1 {
                                 this.marked_entries.clear();
-                                this.marked_entries.push(drag_state.active_selection);
+
+                                if drag_state.originates_from(&this.workspace) {
+                                    this.marked_entries.push(drag_state.active_selection);
+                                }
                             }
 
                             let Some((entry_id, highlight_entry_id)) = maybe!({

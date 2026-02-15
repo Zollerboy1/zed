@@ -63,11 +63,22 @@ pub struct SelectedEntry {
 /// A group of selected entries from project panel.
 #[derive(Debug)]
 pub struct DraggedSelection {
+    pub workspace: WeakEntity<Workspace>,
     pub active_selection: SelectedEntry,
     pub marked_selections: Arc<[SelectedEntry]>,
 }
 
 impl DraggedSelection {
+    pub fn originates_from(&self, workspace: &WeakEntity<Workspace>) -> bool {
+        let Some(workspace) = workspace.upgrade() else {
+            return false;
+        };
+
+        self.workspace
+            .upgrade()
+            .is_some_and(|w| w.entity_id() == workspace.entity_id())
+    }
+
     pub fn items<'a>(&'a self) -> Box<dyn Iterator<Item = &'a SelectedEntry> + 'a> {
         if self.marked_selections.contains(&self.active_selection) {
             Box::new(self.marked_selections.iter())
@@ -75,11 +86,39 @@ impl DraggedSelection {
             Box::new(std::iter::once(&self.active_selection))
         }
     }
+
+    pub fn map_items_with_project<R, C: FromIterator<R>>(
+        &self,
+        cx: &App,
+        f: impl Fn(&SelectedEntry, &Project) -> R,
+    ) -> Option<C> {
+        self.workspace
+            .read_with(cx, |workspace, cx| {
+                let project = workspace.project().read(cx);
+                self.items()
+                    .map(move |selected_entry| f(selected_entry, &project))
+                    .collect()
+            })
+            .ok()
+    }
+
+    pub fn project_paths(&self, cx: &App) -> Option<Vec<PathBuf>> {
+        self.workspace
+            .read_with(cx, |workspace, cx| {
+                let project = workspace.project().read(cx);
+                self.items()
+                    .map(|selected_entry| selected_entry.entry_id)
+                    .filter_map(|entry_id| project.path_for_entry(entry_id, cx))
+                    .filter_map(|project_path| project.absolute_path(&project_path, cx))
+                    .collect()
+            })
+            .ok()
+    }
 }
 
 impl DragValue for DraggedSelection {
-    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
-        None
+    fn to_clipboard_item(&self, cx: &mut App) -> Option<gpui::ClipboardItem> {
+        self.project_paths(cx).map(gpui::ClipboardItem::new_paths)
     }
 
     fn to_any(&self) -> &dyn std::any::Any {

@@ -3975,6 +3975,7 @@ async fn test_multiple_marked_entries(cx: &mut gpui::TestAppContext) {
     cx.update(|window, cx| {
         panel.update(cx, |this, cx| {
             let drag = DraggedSelection {
+                workspace: this.workspace.clone(),
                 active_selection: this.selection.unwrap(),
                 marked_selections: this.marked_entries.clone().into(),
             };
@@ -4114,6 +4115,7 @@ async fn test_dragged_selection_resolve_entry(cx: &mut gpui::TestAppContext) {
     select_path(&panel, "root/a/b/c/d", cx);
     panel.update_in(cx, |panel, window, cx| {
         let drag = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: *panel.selection.as_ref().unwrap(),
             marked_selections: Arc::new([*panel.selection.as_ref().unwrap()]),
         };
@@ -4144,6 +4146,7 @@ async fn test_dragged_selection_resolve_entry(cx: &mut gpui::TestAppContext) {
     select_path(&panel, "root/target_destination/d", cx);
     panel.update_in(cx, |panel, window, cx| {
         let drag = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: *panel.selection.as_ref().unwrap(),
             marked_selections: Arc::new([*panel.selection.as_ref().unwrap()]),
         };
@@ -4164,6 +4167,7 @@ async fn test_dragged_selection_resolve_entry(cx: &mut gpui::TestAppContext) {
     select_path(&panel, "root/a/b", cx);
     panel.update_in(cx, |panel, window, cx| {
         let drag = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: *panel.selection.as_ref().unwrap(),
             marked_selections: Arc::new([*panel.selection.as_ref().unwrap()]),
         };
@@ -4190,6 +4194,7 @@ async fn test_dragged_selection_resolve_entry(cx: &mut gpui::TestAppContext) {
     select_path(&panel, "root/target_destination/b", cx);
     panel.update_in(cx, |panel, window, cx| {
         let drag = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: *panel.selection.as_ref().unwrap(),
             marked_selections: Arc::new([*panel.selection.as_ref().unwrap()]),
         };
@@ -4210,6 +4215,7 @@ async fn test_dragged_selection_resolve_entry(cx: &mut gpui::TestAppContext) {
     select_path(&panel, "root/a", cx);
     panel.update_in(cx, |panel, window, cx| {
         let drag = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: *panel.selection.as_ref().unwrap(),
             marked_selections: Arc::new([*panel.selection.as_ref().unwrap()]),
         };
@@ -4284,6 +4290,7 @@ async fn test_drag_marked_entries_in_folded_directories(cx: &mut gpui::TestAppCo
 
     panel.update_in(cx, |panel, window, cx| {
         let drag = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: *panel.selection.as_ref().unwrap(),
             marked_selections: panel.marked_entries.clone().into(),
         };
@@ -7641,6 +7648,7 @@ async fn test_highlight_entry_for_selection_drag(cx: &mut gpui::TestAppContext) 
 
         // Test 1: Single item drag, don't highlight parent directory
         let dragged_selection = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id,
                 entry_id: child_file.id,
@@ -7683,6 +7691,7 @@ async fn test_highlight_entry_for_selection_drag(cx: &mut gpui::TestAppContext) 
 
         // Test 5: Multiple items drag, highlight parent directory
         let dragged_selection = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id,
                 entry_id: child_file.id,
@@ -7777,6 +7786,7 @@ async fn test_highlight_entry_for_selection_drag_cross_worktree(cx: &mut gpui::T
 
         // Test dragging file from worktree A onto parent of file with same relative path in worktree B
         let dragged_selection = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id: worktree_a.read(cx).id(),
                 entry_id: main_rs_from_a.id,
@@ -7870,6 +7880,7 @@ async fn test_should_highlight_background_for_selection_drag(cx: &mut gpui::Test
 
         // Test 1: Multiple entries - should always highlight background
         let multiple_dragged_selection = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id: worktree1_id,
                 entry_id: child_file.id,
@@ -7895,6 +7906,7 @@ async fn test_should_highlight_background_for_selection_drag(cx: &mut gpui::Test
 
         // Test 2: Single entry with non-empty parent path - should highlight background
         let nested_dragged_selection = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id: worktree1_id,
                 entry_id: nested_file.id,
@@ -7914,6 +7926,7 @@ async fn test_should_highlight_background_for_selection_drag(cx: &mut gpui::Test
 
         // Test 3: Single entry at root level, same worktree - should NOT highlight background
         let root_file_dragged_selection = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id: worktree1_id,
                 entry_id: root_file.id,
@@ -7947,6 +7960,7 @@ async fn test_should_highlight_background_for_selection_drag(cx: &mut gpui::Test
 
         // Test 5: Single entry in subdirectory - should highlight background
         let child_file_dragged_selection = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id: worktree1_id,
                 entry_id: child_file.id,
@@ -8597,6 +8611,7 @@ fn drag_selection_to(
             .selection
             .expect("a selection is required before dragging");
         let drag = DraggedSelection {
+            workspace: panel.workspace.clone(),
             active_selection: SelectedEntry {
                 worktree_id: selection.worktree_id,
                 entry_id: panel.resolve_entry(selection.entry_id),

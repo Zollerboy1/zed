@@ -1335,13 +1335,7 @@ pub fn new_terminal_pane(
                 }
             } else if let Some(selection) = dropped_item.to_any().downcast_ref::<DraggedSelection>()
             {
-                let project = project.read(cx);
-                let paths_to_add = selection
-                    .items()
-                    .map(|selected_entry| selected_entry.entry_id)
-                    .filter_map(|entry_id| project.path_for_entry(entry_id, cx))
-                    .filter_map(|project_path| project.absolute_path(&project_path, cx))
-                    .collect::<Vec<_>>();
+                let paths_to_add = selection.project_paths(cx).unwrap_or_default();
                 if !paths_to_add.is_empty() {
                     add_paths_to_terminal(pane, &paths_to_add, window, cx);
                 }
