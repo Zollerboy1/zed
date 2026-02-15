@@ -6,7 +6,6 @@ pub(crate) mod module_list;
 pub mod stack_frame_list;
 pub mod variable_list;
 use std::{
-    any::Any,
     ops::ControlFlow,
     path::PathBuf,
     sync::{Arc, LazyLock},
@@ -33,8 +32,8 @@ use dap::{
 };
 use futures::{SinkExt, channel::mpsc};
 use gpui::{
-    Action as _, AnyView, AppContext, Axis, Entity, EntityId, EventEmitter, FocusHandle, Focusable,
-    NoAction, Pixels, Point, Subscription, Task, WeakEntity,
+    Action as _, AnyView, AppContext, Axis, DragValue, Entity, EntityId, EventEmitter, FocusHandle,
+    Focusable, NoAction, Pixels, Point, Subscription, Task, WeakEntity,
 };
 use language::Buffer;
 use loaded_source_list::LoadedSourceList;
@@ -315,8 +314,11 @@ pub(crate) fn new_debugger_pane(
         let workspace = workspace.clone();
         let project = project.downgrade();
         let weak_running = weak_running.clone();
-        move |pane: &mut Pane, any: &dyn Any, window: &mut Window, cx: &mut Context<Pane>| {
-            let Some(tab) = any.downcast_ref::<DraggedTab>() else {
+        move |pane: &mut Pane,
+              drag_value: &dyn DragValue,
+              window: &mut Window,
+              cx: &mut Context<Pane>| {
+            let Some(tab) = drag_value.to_any().downcast_ref::<DraggedTab>() else {
                 return ControlFlow::Break(());
             };
             let Some(project) = project.upgrade() else {
@@ -397,7 +399,7 @@ pub(crate) fn new_debugger_pane(
         pane.set_can_split(Some(Arc::new({
             let weak_running = weak_running.clone();
             move |pane, dragged_item, _window, cx| {
-                if let Some(tab) = dragged_item.downcast_ref::<DraggedTab>() {
+                if let Some(tab) = dragged_item.to_any().downcast_ref::<DraggedTab>() {
                     let is_current_pane = tab.pane == cx.entity();
                     let Some(can_drag_away) = weak_running
                         .read_with(cx, |running_state, _| {

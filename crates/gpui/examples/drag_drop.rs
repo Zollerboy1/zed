@@ -1,5 +1,5 @@
 use gpui::{
-    App, Application, Bounds, Context, Half, Hsla, Pixels, Point, Window, WindowBounds,
+    App, Application, Bounds, Context, DragValue, Half, Hsla, Pixels, Point, Window, WindowBounds,
     WindowOptions, div, prelude::*, px, rgb, size,
 };
 
@@ -45,6 +45,16 @@ impl Render for DragInfo {
                     .shadow_md()
                     .child(format!("Item {}", self.ix)),
             )
+    }
+}
+
+impl DragValue for DragInfo {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

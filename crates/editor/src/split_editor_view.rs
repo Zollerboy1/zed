@@ -2,8 +2,8 @@ use std::cmp;
 
 use collections::{HashMap, HashSet};
 use gpui::{
-    AbsoluteLength, AnyElement, App, AvailableSpace, Bounds, Context, DragMoveEvent, Element,
-    Entity, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Length,
+    AbsoluteLength, AnyElement, App, AvailableSpace, Bounds, Context, DragMoveEvent, DragValue,
+    Element, Entity, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Length,
     ParentElement, Pixels, StatefulInteractiveElement, Styled, TextStyleRefinement, Window, div,
     linear_color_stop, linear_gradient, point, px, size,
 };
@@ -30,6 +30,16 @@ const RESIZE_HANDLE_WIDTH: f32 = 8.0;
 
 #[derive(Debug, Clone)]
 struct DraggedSplitHandle;
+
+impl DragValue for DraggedSplitHandle {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
 
 pub struct SplitEditorState {
     left_ratio: f32,

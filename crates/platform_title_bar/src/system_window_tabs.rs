@@ -1,8 +1,9 @@
 use settings::{Settings, SettingsStore};
 
 use gpui::{
-    AnyWindowHandle, Context, Hsla, InteractiveElement, MouseButton, ParentElement, ScrollHandle,
-    Styled, SystemWindowTab, SystemWindowTabController, Window, WindowId, actions, canvas, div,
+    AnyWindowHandle, Context, DragValue, Hsla, InteractiveElement, MouseButton, ParentElement,
+    ScrollHandle, Styled, SystemWindowTab, SystemWindowTabController, Window, WindowId, actions,
+    canvas, div,
 };
 
 use theme::ThemeSettings;
@@ -35,6 +36,16 @@ pub struct DraggedWindowTab {
     pub is_active: bool,
     pub active_background_color: Hsla,
     pub inactive_background_color: Hsla,
+}
+
+impl DragValue for DraggedWindowTab {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 pub struct SystemWindowTabs {

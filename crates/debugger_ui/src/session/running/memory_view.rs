@@ -9,10 +9,10 @@ use std::{
 
 use editor::{Editor, EditorElement, EditorStyle};
 use gpui::{
-    Action, Along, AppContext, Axis, DismissEvent, DragMoveEvent, Empty, Entity, FocusHandle,
-    Focusable, ListHorizontalSizingBehavior, MouseButton, Point, ScrollStrategy, ScrollWheelEvent,
-    Subscription, Task, TextStyle, UniformList, UniformListScrollHandle, WeakEntity, actions,
-    anchored, deferred, uniform_list,
+    Action, Along, AppContext, Axis, DismissEvent, DragMoveEvent, DragValue, Empty, Entity,
+    FocusHandle, Focusable, ListHorizontalSizingBehavior, MouseButton, Point, ScrollStrategy,
+    ScrollWheelEvent, Subscription, Task, TextStyle, UniformList, UniformListScrollHandle,
+    WeakEntity, actions, anchored, deferred, uniform_list,
 };
 use notifications::status_toast::{StatusToast, ToastIcon};
 use project::debugger::{MemoryCell, dap_command::DataBreakpointContext, session::Session};
@@ -65,6 +65,17 @@ impl Drag {
         }
     }
 }
+
+impl DragValue for Drag {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 #[derive(Clone, Debug)]
 enum SelectedMemoryRange {
     DragUnderway(Drag),

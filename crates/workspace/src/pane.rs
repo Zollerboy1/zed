@@ -20,10 +20,10 @@ use feature_flags::{AgentV2FeatureFlag, FeatureFlagAppExt};
 use futures::{StreamExt, stream::FuturesUnordered};
 use gpui::{
     Action, AnyElement, App, AsyncWindowContext, ClickEvent, ClipboardItem, Context, Corner, Div,
-    DragMoveEvent, Entity, EntityId, EventEmitter, ExternalPaths, FocusHandle, FocusOutEvent,
-    Focusable, KeyContext, MouseButton, NavigationDirection, Pixels, Point, PromptLevel, Render,
-    ScrollHandle, Subscription, Task, WeakEntity, WeakFocusHandle, Window, actions, anchored,
-    deferred, prelude::*,
+    DragMoveEvent, DragValue, Entity, EntityId, EventEmitter, ExternalPaths, FocusHandle,
+    FocusOutEvent, Focusable, KeyContext, MouseButton, NavigationDirection, Pixels, Point,
+    PromptLevel, Render, ScrollHandle, Subscription, Task, WeakEntity, WeakFocusHandle, Window,
+    actions, anchored, deferred, prelude::*,
 };
 use itertools::Itertools;
 use language::{Capability, DiagnosticSeverity};
@@ -74,6 +74,16 @@ impl DraggedSelection {
         } else {
             Box::new(std::iter::once(&self.active_selection))
         }
+    }
+}
+
+impl DragValue for DraggedSelection {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -383,12 +393,19 @@ pub struct Pane {
     pub(crate) workspace: WeakEntity<Workspace>,
     project: WeakEntity<Project>,
     pub drag_split_direction: Option<SplitDirection>,
-    can_drop_predicate: Option<Arc<dyn Fn(&dyn Any, &mut Window, &mut App) -> bool>>,
+    can_drop_predicate: Option<Arc<dyn Fn(&dyn DragValue, &mut Window, &mut App) -> bool>>,
     custom_drop_handle: Option<
-        Arc<dyn Fn(&mut Pane, &dyn Any, &mut Window, &mut Context<Pane>) -> ControlFlow<(), ()>>,
+        Arc<
+            dyn Fn(
+                &mut Pane,
+                &dyn DragValue,
+                &mut Window,
+                &mut Context<Pane>,
+            ) -> ControlFlow<(), ()>,
+        >,
     >,
     can_split_predicate:
-        Option<Arc<dyn Fn(&mut Self, &dyn Any, &mut Window, &mut Context<Self>) -> bool>>,
+        Option<Arc<dyn Fn(&mut Self, &dyn DragValue, &mut Window, &mut Context<Self>) -> bool>>,
     can_toggle_zoom: bool,
     should_display_tab_bar: Rc<dyn Fn(&Window, &mut Context<Pane>) -> bool>,
     render_tab_bar_buttons: Rc<
@@ -497,6 +514,16 @@ pub struct DraggedTab {
     pub is_active: bool,
 }
 
+impl DragValue for DraggedTab {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 impl EventEmitter<Event> for Pane {}
 
 pub enum Side {
@@ -515,7 +542,9 @@ impl Pane {
         workspace: WeakEntity<Workspace>,
         project: Entity<Project>,
         next_timestamp: Arc<AtomicUsize>,
-        can_drop_predicate: Option<Arc<dyn Fn(&dyn Any, &mut Window, &mut App) -> bool + 'static>>,
+        can_drop_predicate: Option<
+            Arc<dyn Fn(&dyn DragValue, &mut Window, &mut App) -> bool + 'static>,
+        >,
         double_click_dispatch_action: Box<dyn Action>,
         use_max_tabs: bool,
         window: &mut Window,
@@ -800,7 +829,10 @@ impl Pane {
     pub fn set_can_split(
         &mut self,
         can_split_predicate: Option<
-            Arc<dyn Fn(&mut Self, &dyn Any, &mut Window, &mut Context<Self>) -> bool + 'static>,
+            Arc<
+                dyn Fn(&mut Self, &dyn DragValue, &mut Window, &mut Context<Self>) -> bool
+                    + 'static,
+            >,
         >,
     ) {
         self.can_split_predicate = can_split_predicate;
@@ -847,7 +879,7 @@ impl Pane {
     pub fn set_custom_drop_handle<F>(&mut self, cx: &mut Context<Self>, handle: F)
     where
         F: 'static
-            + Fn(&mut Pane, &dyn Any, &mut Window, &mut Context<Pane>) -> ControlFlow<(), ()>,
+            + Fn(&mut Pane, &dyn DragValue, &mut Window, &mut Context<Pane>) -> ControlFlow<(), ()>,
     {
         self.custom_drop_handle = Some(Arc::new(handle));
         cx.notify();
@@ -3710,7 +3742,7 @@ impl Pane {
         self.zoomed
     }
 
-    fn handle_drag_move<T: 'static>(
+    fn handle_drag_move<T: 'static + DragValue>(
         &mut self,
         event: &DragMoveEvent<T>,
         window: &mut Window,

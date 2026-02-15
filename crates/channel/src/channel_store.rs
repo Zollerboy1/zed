@@ -7,8 +7,8 @@ use client::{ChannelId, Client, ClientSettings, Subscription, User, UserId, User
 use collections::{HashMap, HashSet};
 use futures::{Future, FutureExt, StreamExt, channel::mpsc, future::Shared};
 use gpui::{
-    App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, Global, SharedString, Task,
-    WeakEntity,
+    App, AppContext as _, AsyncApp, Context, DragValue, Entity, EventEmitter, Global, SharedString,
+    Task, WeakEntity,
 };
 use language::Capability;
 use postage::{sink::Sink, watch};
@@ -100,6 +100,16 @@ impl Channel {
             .collect();
 
         slug.trim_matches(|c| c == '-').to_string()
+    }
+}
+
+impl DragValue for Channel {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

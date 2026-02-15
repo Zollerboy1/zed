@@ -17,13 +17,13 @@
 
 use crate::{
     AbsoluteLength, Action, AnyDrag, AnyElement, AnyTooltip, AnyView, App, Bounds, ClickEvent,
-    DispatchPhase, Display, Element, ElementId, Entity, FocusHandle, Global, GlobalElementId,
-    Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement, IsZero, KeyContext,
-    KeyDownEvent, KeyUpEvent, KeyboardButton, KeyboardClickEvent, LayoutId, ModifiersChangedEvent,
-    MouseButton, MouseClickEvent, MouseDownEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent,
-    Overflow, ParentElement, Pixels, Point, Render, ScrollWheelEvent, SharedString, Size, Style,
-    StyleRefinement, Styled, Task, TooltipId, Visibility, Window, WindowControlArea, point, px,
-    size,
+    DispatchPhase, Display, DragValue, Element, ElementId, Entity, FocusHandle, Global,
+    GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement, IsZero,
+    KeyContext, KeyDownEvent, KeyUpEvent, KeyboardButton, KeyboardClickEvent, LayoutId,
+    ModifiersChangedEvent, MouseButton, MouseClickEvent, MouseDownEvent, MouseMoveEvent,
+    MousePressureEvent, MouseUpEvent, Overflow, ParentElement, Pixels, Point, Render,
+    ScrollWheelEvent, SharedString, Size, Style, StyleRefinement, Styled, Task, TooltipId,
+    Visibility, Window, WindowControlArea, point, px, size,
 };
 use collections::HashMap;
 use refineable::Refineable;
@@ -66,20 +66,20 @@ pub struct DragMoveEvent<T> {
     /// The bounds of this element.
     pub bounds: Bounds<Pixels>,
     drag: PhantomData<T>,
-    dragged_item: Arc<dyn Any>,
+    dragged_item: Arc<dyn DragValue>,
 }
 
-impl<T: 'static> DragMoveEvent<T> {
+impl<T: 'static + DragValue> DragMoveEvent<T> {
     /// Returns the drag state for this event.
     pub fn drag<'b>(&self, cx: &'b App) -> &'b T {
         cx.active_drag
             .as_ref()
-            .and_then(|drag| drag.value.downcast_ref::<T>())
+            .and_then(|drag| drag.value.to_any().downcast_ref::<T>())
             .expect("DragMoveEvent is only valid when the stored active drag is of the same type.")
     }
 
     /// An item that is about to be dropped.
-    pub fn dragged_item(&self) -> &dyn Any {
+    pub fn dragged_item(&self) -> &dyn DragValue {
         self.dragged_item.as_ref()
     }
 }
@@ -315,13 +315,13 @@ impl Interactivity {
         &mut self,
         listener: impl Fn(&DragMoveEvent<T>, &mut Window, &mut App) + 'static,
     ) where
-        T: 'static,
+        T: 'static + DragValue,
     {
         self.mouse_move_listeners
             .push(Box::new(move |event, phase, hitbox, window, cx| {
                 if phase == DispatchPhase::Capture
                     && let Some(drag) = &cx.active_drag
-                    && drag.value.as_ref().type_id() == TypeId::of::<T>()
+                    && drag.value.to_any().type_id() == TypeId::of::<T>()
                 {
                     (listener)(
                         &DragMoveEvent {
@@ -491,11 +491,14 @@ impl Interactivity {
     /// The imperative API equivalent to [`InteractiveElement::on_drop`].
     ///
     /// See [`Context::listener`](crate::Context::listener) to get access to a view's state from this callback.
-    pub fn on_drop<T: 'static>(&mut self, listener: impl Fn(&T, &mut Window, &mut App) + 'static) {
+    pub fn on_drop<T: 'static + DragValue>(
+        &mut self,
+        listener: impl Fn(&T, &mut Window, &mut App) + 'static,
+    ) {
         self.drop_listeners.push((
             TypeId::of::<T>(),
             Box::new(move |dragged_value, window, cx| {
-                listener(dragged_value.downcast_ref().unwrap(), window, cx);
+                listener(dragged_value.to_any().downcast_ref().unwrap(), window, cx);
             }),
         ));
     }
@@ -504,7 +507,7 @@ impl Interactivity {
     /// The imperative API equivalent to [`InteractiveElement::can_drop`].
     pub fn can_drop(
         &mut self,
-        predicate: impl Fn(&dyn Any, &mut Window, &mut App) -> bool + 'static,
+        predicate: impl Fn(&dyn DragValue, &mut Window, &mut App) -> bool + 'static,
     ) {
         self.can_drop_predicate = Some(Box::new(predicate));
     }
@@ -548,7 +551,7 @@ impl Interactivity {
         constructor: impl Fn(&T, Point<Pixels>, &mut Window, &mut App) -> Entity<W> + 'static,
     ) where
         Self: Sized,
-        T: 'static,
+        T: 'static + DragValue,
         W: 'static + Render,
     {
         debug_assert!(
@@ -558,7 +561,7 @@ impl Interactivity {
         self.drag_listener = Some((
             Arc::new(value),
             Box::new(move |value, offset, window, cx| {
-                constructor(value.downcast_ref().unwrap(), offset, window, cx).into()
+                constructor(value.to_any().downcast_ref().unwrap(), offset, window, cx).into()
             }),
         ));
     }
@@ -885,7 +888,7 @@ pub trait InteractiveElement: Sized {
     /// The fluent API equivalent to [`Interactivity::on_drag_move`].
     ///
     /// See [`Context::listener`](crate::Context::listener) to get access to a view's state from this callback.
-    fn on_drag_move<T: 'static>(
+    fn on_drag_move<T: 'static + DragValue>(
         mut self,
         listener: impl Fn(&DragMoveEvent<T>, &mut Window, &mut App) + 'static,
     ) -> Self {
@@ -1005,16 +1008,16 @@ pub trait InteractiveElement: Sized {
     }
 
     /// Apply the given style when the given data type is dragged over this element
-    fn drag_over<S: 'static>(
+    fn drag_over<S: 'static + DragValue>(
         mut self,
         f: impl 'static + Fn(StyleRefinement, &S, &mut Window, &mut App) -> StyleRefinement,
     ) -> Self {
         self.interactivity().drag_over_styles.push((
             TypeId::of::<S>(),
-            Box::new(move |currently_dragged: &dyn Any, window, cx| {
+            Box::new(move |currently_dragged: &dyn DragValue, window, cx| {
                 f(
                     StyleRefinement::default(),
-                    currently_dragged.downcast_ref::<S>().unwrap(),
+                    currently_dragged.to_any().downcast_ref::<S>().unwrap(),
                     window,
                     cx,
                 )
@@ -1024,7 +1027,7 @@ pub trait InteractiveElement: Sized {
     }
 
     /// Apply the given style when the given data type is dragged over this element's group
-    fn group_drag_over<S: 'static>(
+    fn group_drag_over<S: 'static + DragValue>(
         mut self,
         group_name: impl Into<SharedString>,
         f: impl FnOnce(StyleRefinement) -> StyleRefinement,
@@ -1043,7 +1046,7 @@ pub trait InteractiveElement: Sized {
     /// The fluent API equivalent to [`Interactivity::on_drop`].
     ///
     /// See [`Context::listener`](crate::Context::listener) to get access to a view's state from this callback.
-    fn on_drop<T: 'static>(
+    fn on_drop<T: 'static + DragValue>(
         mut self,
         listener: impl Fn(&T, &mut Window, &mut App) + 'static,
     ) -> Self {
@@ -1055,7 +1058,7 @@ pub trait InteractiveElement: Sized {
     /// The fluent API equivalent to [`Interactivity::can_drop`].
     fn can_drop(
         mut self,
-        predicate: impl Fn(&dyn Any, &mut Window, &mut App) -> bool + 'static,
+        predicate: impl Fn(&dyn DragValue, &mut Window, &mut App) -> bool + 'static,
     ) -> Self {
         self.interactivity().can_drop(predicate);
         self
@@ -1233,7 +1236,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     ) -> Self
     where
         Self: Sized,
-        T: 'static,
+        T: 'static + DragValue,
         W: 'static + Render,
     {
         self.interactivity().on_drag(value, constructor);
@@ -1293,11 +1296,11 @@ pub(crate) type ScrollWheelListener =
 pub(crate) type ClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 pub(crate) type DragListener =
-    Box<dyn Fn(&dyn Any, Point<Pixels>, &mut Window, &mut App) -> AnyView + 'static>;
+    Box<dyn Fn(&dyn DragValue, Point<Pixels>, &mut Window, &mut App) -> AnyView + 'static>;
 
-type DropListener = Box<dyn Fn(&dyn Any, &mut Window, &mut App) + 'static>;
+type DropListener = Box<dyn Fn(&dyn DragValue, &mut Window, &mut App) + 'static>;
 
-type CanDropPredicate = Box<dyn Fn(&dyn Any, &mut Window, &mut App) -> bool + 'static>;
+type CanDropPredicate = Box<dyn Fn(&dyn DragValue, &mut Window, &mut App) -> bool + 'static>;
 
 pub(crate) struct TooltipBuilder {
     build: Rc<dyn Fn(&mut Window, &mut App) -> AnyView + 'static>,
@@ -1636,7 +1639,7 @@ pub struct Interactivity {
     pub(crate) group_active_style: Option<GroupStyle>,
     pub(crate) drag_over_styles: Vec<(
         TypeId,
-        Box<dyn Fn(&dyn Any, &mut Window, &mut App) -> StyleRefinement>,
+        Box<dyn Fn(&dyn DragValue, &mut Window, &mut App) -> StyleRefinement>,
     )>,
     pub(crate) group_drag_over_styles: Vec<(TypeId, GroupStyle)>,
     pub(crate) mouse_down_listeners: Vec<MouseDownListener>,
@@ -1652,7 +1655,7 @@ pub struct Interactivity {
     pub(crate) can_drop_predicate: Option<CanDropPredicate>,
     pub(crate) click_listeners: Vec<ClickListener>,
     pub(crate) aux_click_listeners: Vec<ClickListener>,
-    pub(crate) drag_listener: Option<(Arc<dyn Any>, DragListener)>,
+    pub(crate) drag_listener: Option<(Arc<dyn DragValue>, DragListener)>,
     pub(crate) hover_listener: Option<Box<dyn Fn(&bool, &mut Window, &mut App)>>,
     pub(crate) tooltip_builder: Option<TooltipBuilder>,
     pub(crate) window_control: Option<WindowControlArea>,
@@ -2279,7 +2282,7 @@ impl Interactivity {
                         && phase == DispatchPhase::Bubble
                         && hitbox.is_hovered(window)
                     {
-                        let drag_state_type = drag.value.as_ref().type_id();
+                        let drag_state_type = drag.value.to_any().type_id();
                         for (drop_state_type, listener) in &drop_listeners {
                             if *drop_state_type == drag_state_type {
                                 let drag = cx
@@ -2353,12 +2356,16 @@ impl Interactivity {
                             let cursor_offset = event.position - hitbox.origin;
                             let drag =
                                 (drag_listener)(drag_value.as_ref(), cursor_offset, window, cx);
-                            cx.active_drag = Some(AnyDrag {
-                                view: drag,
-                                value: drag_value,
-                                cursor_offset,
-                                cursor_style: drag_cursor_style,
-                            });
+                            window.start_drag(
+                                AnyDrag {
+                                    view: drag,
+                                    value: drag_value,
+                                    cursor_offset,
+                                    cursor_style: drag_cursor_style,
+                                    external_source: false,
+                                },
+                                cx,
+                            );
                             pending_mouse_down.take();
                             window.refresh();
                             cx.stop_propagation();
@@ -2753,7 +2760,7 @@ impl Interactivity {
                     for (state_type, group_drag_style) in &self.group_drag_over_styles {
                         if let Some(group_hitbox_id) =
                             GroupHitboxes::get(&group_drag_style.group, cx)
-                            && *state_type == drag.value.as_ref().type_id()
+                            && *state_type == drag.value.to_any().type_id()
                             && group_hitbox_id.is_hovered(window)
                         {
                             style.refine(&group_drag_style.style);
@@ -2761,7 +2768,7 @@ impl Interactivity {
                     }
 
                     for (state_type, build_drag_over_style) in &self.drag_over_styles {
-                        if *state_type == drag.value.as_ref().type_id() && hitbox.is_hovered(window)
+                        if *state_type == drag.value.to_any().type_id() && hitbox.is_hovered(window)
                         {
                             style.refine(&build_drag_over_style(drag.value.as_ref(), window, cx));
                         }

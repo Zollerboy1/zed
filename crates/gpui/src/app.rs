@@ -1,6 +1,7 @@
 use std::{
     any::{TypeId, type_name},
     cell::{BorrowMutError, Cell, Ref, RefCell, RefMut},
+    fmt,
     marker::PhantomData,
     mem,
     ops::{Deref, DerefMut},
@@ -2467,14 +2468,24 @@ impl<G: Global> DerefMut for GlobalLease<G> {
     }
 }
 
+/// A value that can be dragged and dropped.
+pub trait DragValue {
+    /// Converts this value to a clipboard item for sending it to the platform native drag and drop system.
+    fn to_clipboard_item(&self, cx: &mut App) -> Option<ClipboardItem>;
+
+    /// Gets an any reference to this value.
+    fn to_any(&self) -> &dyn Any;
+}
+
 /// Contains state associated with an active drag operation, started by dragging an element
 /// within the window or by dragging into the app from the underlying platform.
+#[derive(Clone)]
 pub struct AnyDrag {
     /// The view used to render this drag
     pub view: AnyView,
 
     /// The value of the dragged item, to be dropped
-    pub value: Arc<dyn Any>,
+    pub value: Arc<dyn DragValue>,
 
     /// This is used to render the dragged item in the same place
     /// on the original element that the drag was initiated
@@ -2482,6 +2493,40 @@ pub struct AnyDrag {
 
     /// The cursor style to use while dragging
     pub cursor_style: Option<CursorStyle>,
+
+    /// The drag operation has an external source
+    pub external_source: bool,
+}
+
+impl fmt::Debug for AnyDrag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        #[allow(dead_code)]
+        #[derive(Debug)]
+        struct AnyDrag<'a> {
+            view: &'a AnyView,
+            cursor_offset: &'a Point<Pixels>,
+            cursor_style: &'a Option<CursorStyle>,
+            external_source: &'a bool,
+        }
+
+        let Self {
+            view,
+            cursor_offset,
+            cursor_style,
+            external_source,
+            ..
+        } = self;
+
+        fmt::Debug::fmt(
+            &AnyDrag {
+                view,
+                cursor_offset,
+                cursor_style,
+                external_source,
+            },
+            f,
+        )
+    }
 }
 
 /// Contains state associated with a tooltip. You'll only need this struct if you're implementing

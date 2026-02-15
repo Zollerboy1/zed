@@ -1,9 +1,9 @@
 use std::{ops::Range, rc::Rc};
 
 use gpui::{
-    AbsoluteLength, AppContext, Context, DefiniteLength, DragMoveEvent, Entity, EntityId,
-    FocusHandle, Length, ListHorizontalSizingBehavior, ListSizingBehavior, ListState, Point,
-    Stateful, UniformListScrollHandle, WeakEntity, list, transparent_black, uniform_list,
+    AbsoluteLength, AppContext, Context, DefiniteLength, DragMoveEvent, DragValue, Entity,
+    EntityId, FocusHandle, Length, ListHorizontalSizingBehavior, ListSizingBehavior, ListState,
+    Point, Stateful, UniformListScrollHandle, WeakEntity, list, transparent_black, uniform_list,
 };
 
 use crate::{
@@ -229,6 +229,16 @@ pub type UncheckedTableRow<T> = Vec<T>;
 
 #[derive(Debug)]
 struct DraggedColumn(usize);
+
+impl DragValue for DraggedColumn {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
 
 struct UniformListData {
     render_list_of_rows_fn:

@@ -1,6 +1,6 @@
 use crate::{
-    Bounds, Capslock, Context, Empty, IntoElement, Keystroke, Modifiers, Pixels, Point, Render,
-    Window, point, seal::Sealed,
+    AnyDrag, App, Bounds, Capslock, ClipboardEntry, ClipboardItem, Context, DragValue, Empty,
+    IntoElement, Keystroke, Modifiers, Pixels, Point, Render, Window, point, seal::Sealed,
 };
 use smallvec::SmallVec;
 use std::{any::Any, fmt::Debug, ops::Deref, path::PathBuf};
@@ -573,15 +573,36 @@ impl Render for ExternalPaths {
     }
 }
 
-/// A file drop event from the platform, generated when files are dragged and dropped onto the window.
+impl DragValue for ExternalPaths {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<ClipboardItem> {
+        Some(ClipboardItem {
+            entries: vec![ClipboardEntry::ExternalPaths(self.clone())],
+        })
+    }
+
+    fn to_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// The data of a native drop event, either files dragged and dropped onto the window or a returning drag from self
 #[derive(Debug, Clone)]
-pub enum FileDropEvent {
-    /// The files have entered the window.
+pub enum NativeDropData {
+    /// The paths of the files that are being dragged.
+    FromExternal(ExternalPaths),
+    /// The data of a drag from self.
+    FromSelf(AnyDrag),
+}
+
+/// A drop event from the platform, generated when files are dragged and dropped onto the window or a drag from self returns.
+#[derive(Debug, Clone)]
+pub enum NativeDropEvent {
+    /// The drag has entered the window.
     Entered {
         /// The position of the mouse relative to the window.
         position: Point<Pixels>,
-        /// The paths of the files that are being dragged.
-        paths: ExternalPaths,
+        /// The data of the drag.
+        data: NativeDropData,
     },
     /// The files are being dragged over the window
     Pending {
@@ -597,13 +618,13 @@ pub enum FileDropEvent {
     Exited,
 }
 
-impl Sealed for FileDropEvent {}
-impl InputEvent for FileDropEvent {
+impl Sealed for NativeDropEvent {}
+impl InputEvent for NativeDropEvent {
     fn to_platform_input(self) -> PlatformInput {
-        PlatformInput::FileDrop(self)
+        PlatformInput::NativeDrop(self)
     }
 }
-impl MouseEvent for FileDropEvent {}
+impl MouseEvent for NativeDropEvent {}
 
 /// An enum corresponding to all kinds of platform input events.
 #[derive(Clone, Debug)]
@@ -626,8 +647,8 @@ pub enum PlatformInput {
     MouseExited(MouseExitEvent),
     /// The scroll wheel was used.
     ScrollWheel(ScrollWheelEvent),
-    /// Files were dragged and dropped onto the window.
-    FileDrop(FileDropEvent),
+    /// Files were dragged and dropped onto the window or a drag from self returned.
+    NativeDrop(NativeDropEvent),
 }
 
 impl PlatformInput {
@@ -642,7 +663,7 @@ impl PlatformInput {
             PlatformInput::MousePressure(event) => Some(event),
             PlatformInput::MouseExited(event) => Some(event),
             PlatformInput::ScrollWheel(event) => Some(event),
-            PlatformInput::FileDrop(event) => Some(event),
+            PlatformInput::NativeDrop(event) => Some(event),
         }
     }
 
@@ -657,7 +678,7 @@ impl PlatformInput {
             PlatformInput::MousePressure(_) => None,
             PlatformInput::MouseExited(_) => None,
             PlatformInput::ScrollWheel(_) => None,
-            PlatformInput::FileDrop(_) => None,
+            PlatformInput::NativeDrop(_) => None,
         }
     }
 }

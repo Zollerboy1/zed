@@ -604,6 +604,8 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn render_to_image(&self, _scene: &Scene) -> Result<RgbaImage> {
         anyhow::bail!("render_to_image not implemented for this platform")
     }
+
+    fn start_native_drag(&self, _cx: &mut App) {}
 }
 
 /// Type alias for runnables with metadata.
@@ -1651,7 +1653,7 @@ pub enum CursorStyle {
 /// A clipboard item that should be copied to the clipboard
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClipboardItem {
-    entries: Vec<ClipboardEntry>,
+    pub(crate) entries: Vec<ClipboardEntry>,
 }
 
 /// Either a ClipboardString or a ClipboardImage
@@ -1696,6 +1698,15 @@ impl ClipboardItem {
     pub fn new_image(image: &Image) -> Self {
         Self {
             entries: vec![ClipboardEntry::Image(image.clone())],
+        }
+    }
+
+    /// Create a new ClipboardItem::ExternalPaths with the given file paths
+    pub fn new_paths(paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        Self {
+            entries: vec![ClipboardEntry::ExternalPaths(crate::ExternalPaths(
+                SmallVec::from_iter(paths),
+            ))],
         }
     }
 

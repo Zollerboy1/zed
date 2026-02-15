@@ -1211,7 +1211,7 @@ pub fn new_terminal_pane(
 
         let split_closure_terminal_panel = terminal_panel.downgrade();
         pane.set_can_split(Some(Arc::new(move |pane, dragged_item, _window, cx| {
-            if let Some(tab) = dragged_item.downcast_ref::<DraggedTab>() {
+            if let Some(tab) = dragged_item.to_any().downcast_ref::<DraggedTab>() {
                 let is_current_pane = tab.pane == cx.entity();
                 let Some(can_drag_away) = split_closure_terminal_panel
                     .read_with(cx, |terminal_panel, _| {
@@ -1254,7 +1254,7 @@ pub fn new_terminal_pane(
             let Some(project) = drop_closure_project.upgrade() else {
                 return ControlFlow::Break(());
             };
-            if let Some(tab) = dropped_item.downcast_ref::<DraggedTab>() {
+            if let Some(tab) = dropped_item.to_any().downcast_ref::<DraggedTab>() {
                 let this_pane = cx.entity();
                 let item = if tab.pane == this_pane {
                     pane.item_for_index(tab.ix)
@@ -1333,7 +1333,8 @@ pub fn new_terminal_pane(
                         add_paths_to_terminal(pane, &[entry_path], window, cx);
                     }
                 }
-            } else if let Some(selection) = dropped_item.downcast_ref::<DraggedSelection>() {
+            } else if let Some(selection) = dropped_item.to_any().downcast_ref::<DraggedSelection>()
+            {
                 let project = project.read(cx);
                 let paths_to_add = selection
                     .items()
@@ -1344,7 +1345,7 @@ pub fn new_terminal_pane(
                 if !paths_to_add.is_empty() {
                     add_paths_to_terminal(pane, &paths_to_add, window, cx);
                 }
-            } else if let Some(&entry_id) = dropped_item.downcast_ref::<ProjectEntryId>() {
+            } else if let Some(&entry_id) = dropped_item.to_any().downcast_ref::<ProjectEntryId>() {
                 if let Some(entry_path) = project
                     .read(cx)
                     .path_for_entry(entry_id, cx)
@@ -1352,7 +1353,9 @@ pub fn new_terminal_pane(
                 {
                     add_paths_to_terminal(pane, &[entry_path], window, cx);
                 }
-            } else if is_local && let Some(paths) = dropped_item.downcast_ref::<ExternalPaths>() {
+            } else if is_local
+                && let Some(paths) = dropped_item.to_any().downcast_ref::<ExternalPaths>()
+            {
                 add_paths_to_terminal(pane, paths.paths(), window, cx);
             }
 

@@ -23,8 +23,8 @@ use git::{
     status::GitSummary,
 };
 use gpui::{
-    App, AppContext as _, AsyncApp, BackgroundExecutor, Context, Entity, EventEmitter, Priority,
-    Task,
+    App, AppContext as _, AsyncApp, BackgroundExecutor, Context, DragValue, Entity, EventEmitter,
+    Priority, Task,
 };
 use ignore::IgnoreStack;
 use language::DiskState;
@@ -5863,6 +5863,16 @@ impl ProjectEntryId {
 
     pub fn to_usize(self) -> usize {
         self.0
+    }
+}
+
+impl DragValue for ProjectEntryId {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

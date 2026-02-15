@@ -4,11 +4,11 @@ use crate::{
     Action, AnyDrag, AnyElement, AnyImageCache, AnyTooltip, AnyView, App, AppContext, Arena, Asset,
     AsyncWindowContext, AvailableSpace, Background, BorderStyle, Bounds, BoxShadow, Capslock,
     Context, Corners, CursorStyle, Decorations, DevicePixels, DispatchActionListener,
-    DispatchNodeId, DispatchTree, DisplayId, Edges, Effect, Entity, EntityId, EventEmitter,
-    FileDropEvent, FontId, Global, GlobalElementId, GlyphId, GpuSpecs, Hsla, InputHandler, IsZero,
-    KeyBinding, KeyContext, KeyDownEvent, KeyEvent, Keystroke, KeystrokeEvent, LayoutId,
-    LineLayoutIndex, Modifiers, ModifiersChangedEvent, MonochromeSprite, MouseButton, MouseEvent,
-    MouseMoveEvent, MouseUpEvent, Path, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
+    DispatchNodeId, DispatchTree, DisplayId, Edges, Effect, Entity, EntityId, EventEmitter, FontId,
+    Global, GlobalElementId, GlyphId, GpuSpecs, Hsla, InputHandler, IsZero, KeyBinding, KeyContext,
+    KeyDownEvent, KeyEvent, Keystroke, KeystrokeEvent, LayoutId, LineLayoutIndex, Modifiers,
+    ModifiersChangedEvent, MonochromeSprite, MouseButton, MouseEvent, MouseMoveEvent, MouseUpEvent,
+    NativeDropData, NativeDropEvent, Path, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
     PlatformInputHandler, PlatformWindow, Point, PolychromeSprite, Priority, PromptButton,
     PromptLevel, Quad, Render, RenderGlyphParams, RenderImage, RenderImageParams, RenderSvgParams,
     Replay, ResizeEdge, SMOOTH_SVG_SCALE_FACTOR, SUBPIXEL_VARIANTS_X, SUBPIXEL_VARIANTS_Y,
@@ -3875,6 +3875,12 @@ impl Window {
             .unwrap_or_else(|| action.name().to_string())
     }
 
+    /// Start a drag operation.
+    pub fn start_drag(&mut self, drag: AnyDrag, cx: &mut App) {
+        cx.active_drag = Some(drag);
+        self.platform_window.start_native_drag(cx)
+    }
+
     /// Dispatch a mouse or keyboard event on the window.
     #[profiling::function]
     pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
@@ -3929,15 +3935,19 @@ impl Window {
             }
             // Translate dragging and dropping of external files from the operating system
             // to internal drag and drop events.
-            PlatformInput::FileDrop(file_drop) => match file_drop {
-                FileDropEvent::Entered { position, paths } => {
+            PlatformInput::NativeDrop(drop_event) => match drop_event {
+                NativeDropEvent::Entered { position, data } => {
                     self.mouse_position = position;
                     if cx.active_drag.is_none() {
-                        cx.active_drag = Some(AnyDrag {
-                            value: Arc::new(paths.clone()),
-                            view: cx.new(|_| paths).into(),
-                            cursor_offset: position,
-                            cursor_style: None,
+                        cx.active_drag = Some(match data {
+                            NativeDropData::FromExternal(paths) => AnyDrag {
+                                value: Arc::new(paths.clone()),
+                                view: cx.new(|_| paths).into(),
+                                cursor_offset: position,
+                                cursor_style: None,
+                                external_source: true,
+                            },
+                            NativeDropData::FromSelf(drag) => drag,
                         });
                     }
                     PlatformInput::MouseMove(MouseMoveEvent {
@@ -3946,7 +3956,7 @@ impl Window {
                         modifiers: Modifiers::default(),
                     })
                 }
-                FileDropEvent::Pending { position } => {
+                NativeDropEvent::Pending { position } => {
                     self.mouse_position = position;
                     PlatformInput::MouseMove(MouseMoveEvent {
                         position,
@@ -3954,7 +3964,7 @@ impl Window {
                         modifiers: Modifiers::default(),
                     })
                 }
-                FileDropEvent::Submit { position } => {
+                NativeDropEvent::Submit { position } => {
                     cx.activate(true);
                     self.mouse_position = position;
                     PlatformInput::MouseUp(MouseUpEvent {
@@ -3964,9 +3974,9 @@ impl Window {
                         click_count: 1,
                     })
                 }
-                FileDropEvent::Exited => {
+                NativeDropEvent::Exited => {
                     cx.active_drag.take();
-                    PlatformInput::FileDrop(FileDropEvent::Exited)
+                    PlatformInput::NativeDrop(NativeDropEvent::Exited)
                 }
             },
             PlatformInput::KeyDown(_) | PlatformInput::KeyUp(_) => event,

@@ -1,5 +1,5 @@
 use gpui::{
-    AppContext as _, EntityId, MouseButton, Pixels, Render, StatefulInteractiveElement,
+    AppContext as _, DragValue, EntityId, MouseButton, Pixels, Render, StatefulInteractiveElement,
     Subscription, WeakEntity, deferred, px,
 };
 use ui::{
@@ -39,6 +39,16 @@ pub struct DraggedUtilityPane(pub UtilityPaneSlot);
 impl Render for DraggedUtilityPane {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         gpui::Empty
+    }
+}
+
+impl DragValue for DraggedUtilityPane {
+    fn to_clipboard_item(&self, _cx: &mut gpui::App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

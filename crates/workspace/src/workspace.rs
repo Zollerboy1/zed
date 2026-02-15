@@ -44,11 +44,11 @@ use futures::{
 };
 use gpui::{
     Action, AnyEntity, AnyView, AnyWeakView, App, AsyncApp, AsyncWindowContext, Bounds, Context,
-    CursorStyle, Decorations, DragMoveEvent, Entity, EntityId, EventEmitter, FocusHandle,
-    Focusable, Global, HitboxBehavior, Hsla, KeyContext, Keystroke, ManagedView, MouseButton,
-    PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful, Subscription,
-    SystemWindowTabController, Task, Tiling, WeakEntity, WindowBounds, WindowHandle, WindowId,
-    WindowOptions, actions, canvas, point, relative, size, transparent_black,
+    CursorStyle, Decorations, DragMoveEvent, DragValue, Entity, EntityId, EventEmitter,
+    FocusHandle, Focusable, Global, HitboxBehavior, Hsla, KeyContext, Keystroke, ManagedView,
+    MouseButton, PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful,
+    Subscription, SystemWindowTabController, Task, Tiling, WeakEntity, WindowBounds, WindowHandle,
+    WindowId, WindowOptions, actions, canvas, point, relative, size, transparent_black,
 };
 pub use history_manager::*;
 pub use item::{
@@ -7203,6 +7203,16 @@ struct DraggedDock(DockPosition);
 impl Render for DraggedDock {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         gpui::Empty
+    }
+}
+
+impl DragValue for DraggedDock {
+    fn to_clipboard_item(&self, _cx: &mut App) -> Option<gpui::ClipboardItem> {
+        None
+    }
+
+    fn to_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

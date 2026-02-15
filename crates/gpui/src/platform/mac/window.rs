@@ -1,13 +1,13 @@
 use super::{BoolExt, MacDisplay, NSRange, NSStringExt, ns_string, renderer};
 use crate::{
-    AnyWindowHandle, BackgroundExecutor, Bounds, Capslock, DisplayLink, ExternalPaths,
-    FileDropEvent, ForegroundExecutor, KeyDownEvent, Keystroke, Modifiers, ModifiersChangedEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformAtlas,
-    PlatformDisplay, PlatformInput, PlatformWindow, Point, PromptButton, PromptLevel,
-    RequestFrameOptions, SharedString, Size, SystemWindowTab, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowKind, WindowParams,
-    dispatch_get_main_queue, dispatch_sys::dispatch_async_f, platform::PlatformInputHandler, point,
-    px, size,
+    AnyDrag, AnyWindowHandle, App, BackgroundExecutor, Bounds, Capslock, ClipboardEntry,
+    ClipboardItem, DisplayLink, ExternalPaths, ForegroundExecutor, KeyDownEvent, Keystroke,
+    Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    NativeDropData, NativeDropEvent, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
+    PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions, SharedString, Size,
+    SystemWindowTab, WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowKind, WindowParams, dispatch_get_main_queue, dispatch_sys::dispatch_async_f,
+    platform::PlatformInputHandler, point, px, size,
 };
 #[cfg(any(test, feature = "test-support"))]
 use anyhow::Result;
@@ -15,17 +15,17 @@ use block::ConcreteBlock;
 use cocoa::{
     appkit::{
         NSAppKitVersionNumber, NSAppKitVersionNumber12_0, NSApplication, NSBackingStoreBuffered,
-        NSColor, NSEvent, NSEventModifierFlags, NSFilenamesPboardType, NSPasteboard, NSScreen,
-        NSView, NSViewHeightSizable, NSViewWidthSizable, NSVisualEffectMaterial,
-        NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowButton,
-        NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowOrderingMode,
-        NSWindowStyleMask, NSWindowTitleVisibility,
+        NSColor, NSEvent, NSEventModifierFlags, NSFilenamesPboardType, NSImage,
+        NSImageNameMultipleDocuments, NSPasteboard, NSScreen, NSView, NSViewHeightSizable,
+        NSViewWidthSizable, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+        NSWindow, NSWindowButton, NSWindowCollectionBehavior, NSWindowOcclusionState,
+        NSWindowOrderingMode, NSWindowStyleMask, NSWindowTitleVisibility,
     },
     base::{id, nil},
     foundation::{
         NSArray, NSAutoreleasePool, NSDictionary, NSFastEnumeration, NSInteger, NSNotFound,
         NSOperatingSystemVersion, NSPoint, NSProcessInfo, NSRect, NSSize, NSString, NSUInteger,
-        NSUserDefaults,
+        NSURL, NSUserDefaults,
     },
 };
 #[cfg(any(test, feature = "test-support"))]
@@ -86,12 +86,18 @@ const NSTrackingInVisibleRect: NSUInteger = 0x200;
 const NSWindowAnimationBehaviorUtilityWindow: NSInteger = 4;
 #[allow(non_upper_case_globals)]
 const NSViewLayerContentsRedrawDuringViewResize: NSInteger = 2;
+// https://developer.apple.com/documentation/appkit/nsdraggingcontext
+type NSDraggingContext = NSInteger;
+#[allow(non_upper_case_globals)]
+const NSDraggingContextWithinApplication: NSDraggingContext = 1;
 // https://developer.apple.com/documentation/appkit/nsdragoperation
 type NSDragOperation = NSUInteger;
 #[allow(non_upper_case_globals)]
 const NSDragOperationNone: NSDragOperation = 0;
 #[allow(non_upper_case_globals)]
 const NSDragOperationCopy: NSDragOperation = 1;
+#[allow(non_upper_case_globals)]
+const NSDragOperationPrivate: NSDragOperation = 8;
 #[derive(PartialEq)]
 pub enum UserTabbingPreference {
     Never,
@@ -363,6 +369,36 @@ unsafe fn build_window_class(name: &'static str, superclass: &Class) -> *const C
             conclude_drag_operation as extern "C" fn(&Object, Sel, id),
         );
 
+        decl.add_protocol(Protocol::get("NSDraggingSource").unwrap());
+        decl.add_method(
+            sel!(draggingSession:sourceOperationMaskForDraggingContext:),
+            dragging_session_source_operation_mask
+                as extern "C" fn(&Object, Sel, id, NSDraggingContext) -> NSDragOperation,
+        );
+        decl.add_method(
+            sel!(draggingSession:movedToPoint:),
+            dragging_session_moved_to_point as extern "C" fn(&Object, Sel, id, NSPoint),
+        );
+        decl.add_method(
+            sel!(draggingSession:endedAtPoint:operation:),
+            dragging_session_ended_at_point
+                as extern "C" fn(&Object, Sel, id, NSPoint, NSDragOperation),
+        );
+
+        // Custom method for getting a copy of the current active drag data
+        decl.add_method(
+            sel!(customDragEnteredOtherWindowForSessionWithSequenceNumber:),
+            custom_drag_entered_other_window as extern "C" fn(&Object, Sel, NSInteger),
+        );
+        decl.add_method(
+            sel!(customDragExitedOtherWindowForSessionWithSequenceNumber:),
+            custom_drag_exited_other_window as extern "C" fn(&Object, Sel, NSInteger),
+        );
+        decl.add_method(
+            sel!(getActiveDragDataForSessionWithSequenceNumber:),
+            get_active_drag_data as extern "C" fn(&Object, Sel, NSInteger) -> *mut c_void,
+        );
+
         decl.add_method(
             sel!(addTitlebarAccessoryViewController:),
             add_titlebar_accessory_view_controller as extern "C" fn(&Object, Sel, id),
@@ -395,6 +431,20 @@ unsafe fn build_window_class(name: &'static str, superclass: &Class) -> *const C
 
         decl.register()
     }
+}
+
+enum DragState {
+    Pending {
+        drag: AnyDrag,
+        clipboard_item: ClipboardItem,
+    },
+    Active {
+        drag: AnyDrag,
+        session: id,
+        sequence_number: NSInteger,
+        is_outside: bool,
+        is_over_other_window: bool,
+    },
 }
 
 struct MacWindowState {
@@ -435,6 +485,7 @@ struct MacWindowState {
     activated_least_once: bool,
     // The parent window if this window is a sheet (Dialog kind)
     sheet_parent: Option<id>,
+    active_drag_state: Option<DragState>,
 }
 
 impl MacWindowState {
@@ -750,6 +801,7 @@ impl MacWindow {
                 toggle_tab_bar_callback: None,
                 activated_least_once: false,
                 sheet_parent: None,
+                active_drag_state: None,
             })));
 
             (*native_window).set_ivar(
@@ -1623,6 +1675,29 @@ impl PlatformWindow for MacWindow {
         let mut this = self.0.lock();
         this.renderer.render_to_image(scene)
     }
+
+    fn start_native_drag(&self, cx: &mut App) {
+        let mut lock = self.0.lock();
+
+        if lock.active_drag_state.is_none() {
+            let Some(active_drag) = cx.active_drag.take() else {
+                return;
+            };
+
+            let Some(item) = active_drag.value.to_clipboard_item(cx) else {
+                // Only start native drag if there is an item for an external drag
+                cx.active_drag = Some(active_drag);
+                return;
+            };
+
+            cx.active_drag = Some(active_drag.clone());
+
+            lock.active_drag_state = Some(DragState::Pending {
+                drag: active_drag,
+                clipboard_item: item,
+            });
+        }
+    }
 }
 
 impl rwh::HasWindowHandle for MacWindow {
@@ -1896,6 +1971,95 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
                 lock.first_mouse = false;
             }
 
+            // Start native drag session if a drag exits the window
+            input @ PlatformInput::MouseMove(MouseMoveEvent { .. }) => {
+                if let Some(DragState::Pending {
+                    drag,
+                    clipboard_item,
+                }) = lock.active_drag_state.take()
+                {
+                    let mut event: id =
+                        unsafe { msg_send![NSApplication::sharedApplication(nil), currentEvent] };
+
+                    let location_in_window = unsafe { event.locationInWindow() };
+
+                    let window = lock.native_window;
+
+                    if unsafe { window_point_is_outside(window, location_in_window) } {
+                        let view = lock.native_view.as_ptr();
+
+                        let drag_position = unsafe {
+                            NSView::convertPoint_fromView_(view, location_in_window, nil)
+                        };
+
+                        let items: id = unsafe { msg_send![class!(NSMutableArray), array] };
+                        for entry in clipboard_item.entries {
+                            // for now only support external paths
+                            let ClipboardEntry::ExternalPaths(paths) = entry else {
+                                continue;
+                            };
+                            for path in &paths.0 {
+                                let url = unsafe {
+                                    NSURL::fileURLWithPath_(
+                                        nil,
+                                        ns_string(path.to_string_lossy().as_ref()),
+                                    )
+                                };
+
+                                let drag_size = NSSize::new(24.0, 24.0);
+                                let dragging_frame = NSRect::new(
+                                    NSPoint::new(drag_position.x - 12.0, drag_position.y - 12.0),
+                                    drag_size,
+                                );
+
+                                let drag_item: id = unsafe {
+                                    let alloc: id = msg_send![class!(NSDraggingItem), alloc];
+                                    msg_send![alloc, initWithPasteboardWriter: url]
+                                };
+
+                                let icon = unsafe {
+                                    NSImage::imageNamed_(
+                                        NSImage::alloc(nil),
+                                        NSImageNameMultipleDocuments,
+                                    )
+                                };
+                                let _: () = unsafe {
+                                    msg_send![drag_item, setDraggingFrame: dragging_frame contents: icon]
+                                };
+                                let _: () = unsafe { msg_send![items, addObject: drag_item] };
+                            }
+                        }
+
+                        let session: id = unsafe {
+                            msg_send![view, beginDraggingSessionWithItems: items event: event source: window]
+                        };
+                        let _: () = unsafe {
+                            msg_send![session, setAnimatesToStartingPositionsOnCancelOrFail: NO]
+                        };
+
+                        let sequence_number: NSInteger =
+                            unsafe { msg_send![session, draggingSequenceNumber] };
+
+                        lock.external_files_dragged = true;
+                        lock.synthetic_drag_counter += 1;
+                        lock.active_drag_state = Some(DragState::Active {
+                            drag,
+                            session,
+                            sequence_number,
+                            is_outside: true,
+                            is_over_other_window: false,
+                        });
+
+                        *input = PlatformInput::NativeDrop(NativeDropEvent::Exited);
+                    } else {
+                        lock.active_drag_state = Some(DragState::Pending {
+                            drag,
+                            clipboard_item,
+                        });
+                    }
+                }
+            }
+
             // Because we map a ctrl-left_down to a right_down -> right_up let's ignore
             // the ctrl-left_up to avoid having a mismatch in button down/up events if the
             // user is still holding ctrl when releasing the left mouse button
@@ -1954,6 +2118,7 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
 
             PlatformInput::MouseUp(MouseUpEvent { .. }) => {
                 lock.synthetic_drag_counter += 1;
+                lock.active_drag_state = None;
             }
 
             PlatformInput::ModifiersChanged(ModifiersChangedEvent {
@@ -2453,9 +2618,26 @@ fn screen_point_to_gpui_point(this: &Object, position: NSPoint) -> Point<Pixels>
 extern "C" fn dragging_entered(this: &Object, _: Sel, dragging_info: id) -> NSDragOperation {
     let window_state = unsafe { get_window_state(this) };
     let position = drag_event_position(&window_state, dragging_info);
-    let paths = external_paths_from_event(dragging_info);
-    if let Some(event) = paths.map(|paths| FileDropEvent::Entered { position, paths })
-        && send_file_drop_event(window_state, event)
+
+    if window_state.lock().active_drag_state.is_none() {
+        let source: id = unsafe { msg_send![dragging_info, draggingSource] };
+        if source != nil {
+            let can_call_method: BOOL = unsafe {
+                msg_send![source, respondsToSelector: sel!(customDragEnteredOtherWindowForSessionWithSequenceNumber:)]
+            };
+            if can_call_method {
+                let sequence_number: NSInteger =
+                    unsafe { msg_send![dragging_info, draggingSequenceNumber] };
+                let _: () = unsafe {
+                    msg_send![source, customDragEnteredOtherWindowForSessionWithSequenceNumber: sequence_number]
+                };
+            }
+        }
+    }
+
+    let drop_data = drop_data_from_event(dragging_info);
+    if let Some(event) = drop_data.map(|data| NativeDropEvent::Entered { position, data })
+        && send_drop_event(window_state, event)
     {
         return NSDragOperationCopy;
     }
@@ -2465,25 +2647,59 @@ extern "C" fn dragging_entered(this: &Object, _: Sel, dragging_info: id) -> NSDr
 extern "C" fn dragging_updated(this: &Object, _: Sel, dragging_info: id) -> NSDragOperation {
     let window_state = unsafe { get_window_state(this) };
     let position = drag_event_position(&window_state, dragging_info);
-    if send_file_drop_event(window_state, FileDropEvent::Pending { position }) {
+    if send_drop_event(window_state, NativeDropEvent::Pending { position }) {
         NSDragOperationCopy
     } else {
         NSDragOperationNone
     }
 }
 
-extern "C" fn dragging_exited(this: &Object, _: Sel, _: id) {
+extern "C" fn dragging_exited(this: &Object, _: Sel, dragging_info: id) {
     let window_state = unsafe { get_window_state(this) };
-    send_file_drop_event(window_state, FileDropEvent::Exited);
+
+    if window_state.lock().active_drag_state.is_none() {
+        let source: id = unsafe { msg_send![dragging_info, draggingSource] };
+        if source != nil {
+            let can_call_method: BOOL = unsafe {
+                msg_send![source, respondsToSelector: sel!(customDragExitedOtherWindowForSessionWithSequenceNumber:)]
+            };
+            if can_call_method {
+                let sequence_number: NSInteger =
+                    unsafe { msg_send![dragging_info, draggingSequenceNumber] };
+                let _: () = unsafe {
+                    msg_send![source, customDragExitedOtherWindowForSessionWithSequenceNumber: sequence_number]
+                };
+            }
+        }
+    }
+
+    send_drop_event(window_state, NativeDropEvent::Exited);
 }
 
 extern "C" fn perform_drag_operation(this: &Object, _: Sel, dragging_info: id) -> BOOL {
     let window_state = unsafe { get_window_state(this) };
     let position = drag_event_position(&window_state, dragging_info);
-    send_file_drop_event(window_state, FileDropEvent::Submit { position }).to_objc()
+    send_drop_event(window_state, NativeDropEvent::Submit { position }).to_objc()
 }
 
-fn external_paths_from_event(dragging_info: *mut Object) -> Option<ExternalPaths> {
+fn drop_data_from_event(dragging_info: id) -> Option<NativeDropData> {
+    let source: id = unsafe { msg_send![dragging_info, draggingSource] };
+    if source != nil {
+        let can_get_drop_data: BOOL = unsafe {
+            msg_send![source, respondsToSelector: sel!(getActiveDragDataForSessionWithSequenceNumber:)]
+        };
+        if can_get_drop_data {
+            let sequence_number: NSInteger =
+                unsafe { msg_send![dragging_info, draggingSequenceNumber] };
+            let raw_data: *mut c_void = unsafe {
+                msg_send![source, getActiveDragDataForSessionWithSequenceNumber: sequence_number]
+            };
+            if !raw_data.is_null() {
+                let data = unsafe { Box::from_raw(raw_data as *mut AnyDrag) };
+                return Some(NativeDropData::FromSelf(*data));
+            }
+        }
+    }
     let mut paths = SmallVec::new();
     let pasteboard: id = unsafe { msg_send![dragging_info, draggingPasteboard] };
     let filenames = unsafe { NSPasteboard::propertyListForType(pasteboard, NSFilenamesPboardType) };
@@ -2497,12 +2713,173 @@ fn external_paths_from_event(dragging_info: *mut Object) -> Option<ExternalPaths
         };
         paths.push(PathBuf::from(path))
     }
-    Some(ExternalPaths(paths))
+    Some(NativeDropData::FromExternal(ExternalPaths(paths)))
 }
 
 extern "C" fn conclude_drag_operation(this: &Object, _: Sel, _: id) {
     let window_state = unsafe { get_window_state(this) };
-    send_file_drop_event(window_state, FileDropEvent::Exited);
+    send_drop_event(window_state, NativeDropEvent::Exited);
+}
+
+extern "C" fn dragging_session_source_operation_mask(
+    _: &Object,
+    _: Sel,
+    _: id,
+    context: NSDraggingContext,
+) -> NSDragOperation {
+    match context {
+        #[allow(non_upper_case_globals)]
+        NSDraggingContextWithinApplication => NSDragOperationPrivate | NSDragOperationCopy,
+        _ => NSDragOperationCopy,
+    }
+}
+
+extern "C" fn dragging_session_moved_to_point(
+    this: &Object,
+    _: Sel,
+    session: id,
+    screen_point: NSPoint,
+) {
+    let window_state = unsafe { get_window_state(this) };
+    let mut lock = window_state.lock();
+    let window = lock.native_window;
+    let view = lock.native_view.as_ptr();
+
+    let other_sequence_number: NSInteger = unsafe { msg_send![session, draggingSequenceNumber] };
+    if let Some(DragState::Active {
+        sequence_number,
+        is_outside,
+        is_over_other_window,
+        ..
+    }) = &mut lock.active_drag_state
+    {
+        if *sequence_number == other_sequence_number {
+            let window_point: NSPoint =
+                unsafe { msg_send![window, convertPointFromScreen: screen_point] };
+            let new_is_outside = unsafe { window_point_is_outside(window, window_point) };
+
+            if new_is_outside != *is_outside {
+                *is_outside = new_is_outside;
+                if new_is_outside && !*is_over_other_window {
+                    unsafe {
+                        set_dragging_session_frames(session, view, |item| {
+                            let dragging_frame: NSRect = msg_send![item, draggingFrame];
+                            let icon = NSImage::imageNamed_(
+                                NSImage::alloc(nil),
+                                NSImageNameMultipleDocuments,
+                            );
+                            let _: () =
+                                msg_send![item, setDraggingFrame: dragging_frame contents: icon];
+                        })
+                    }
+                } else if !new_is_outside || *is_over_other_window {
+                    unsafe {
+                        set_dragging_session_frames(session, view, |item| {
+                            let dragging_frame: NSRect = msg_send![item, draggingFrame];
+                            let transparent_image =
+                                NSImage::initWithSize_(NSImage::alloc(nil), dragging_frame.size);
+                            let _: () = msg_send![item, setDraggingFrame: dragging_frame contents: transparent_image];
+                        })
+                    }
+                }
+            }
+        }
+    }
+}
+
+extern "C" fn dragging_session_ended_at_point(
+    this: &Object,
+    _: Sel,
+    _: id,
+    _: NSPoint,
+    _: NSDragOperation,
+) {
+    let window_state = unsafe { get_window_state(this) };
+    window_state.lock().active_drag_state = None;
+    send_drop_event(window_state, NativeDropEvent::Exited);
+}
+
+extern "C" fn custom_drag_entered_other_window(
+    this: &Object,
+    _: Sel,
+    other_sequence_number: NSInteger,
+) {
+    let window_state = unsafe { get_window_state(this) };
+    let mut lock = window_state.lock();
+    let view = lock.native_view.as_ptr();
+    if let Some(DragState::Active {
+        session,
+        sequence_number,
+        is_over_other_window,
+        ..
+    }) = &mut lock.active_drag_state
+    {
+        if *sequence_number == other_sequence_number {
+            *is_over_other_window = true;
+            unsafe {
+                set_dragging_session_frames(*session, view, |item| {
+                    let dragging_frame: NSRect = msg_send![item, draggingFrame];
+                    let transparent_image =
+                        NSImage::initWithSize_(NSImage::alloc(nil), dragging_frame.size);
+                    let _: () = msg_send![item, setDraggingFrame: dragging_frame contents: transparent_image];
+                })
+            }
+        }
+    }
+}
+
+extern "C" fn custom_drag_exited_other_window(
+    this: &Object,
+    _: Sel,
+    other_sequence_number: NSInteger,
+) {
+    let window_state = unsafe { get_window_state(this) };
+    let mut lock = window_state.lock();
+    let view = lock.native_view.as_ptr();
+    if let Some(DragState::Active {
+        session,
+        sequence_number,
+        is_over_other_window,
+        is_outside,
+        ..
+    }) = &mut lock.active_drag_state
+    {
+        if *sequence_number == other_sequence_number {
+            *is_over_other_window = false;
+            if *is_outside {
+                unsafe {
+                    set_dragging_session_frames(*session, view, |item| {
+                        let dragging_frame: NSRect = msg_send![item, draggingFrame];
+                        let icon =
+                            NSImage::imageNamed_(NSImage::alloc(nil), NSImageNameMultipleDocuments);
+                        let _: () =
+                            msg_send![item, setDraggingFrame: dragging_frame contents: icon];
+                    })
+                }
+            }
+        }
+    }
+}
+
+extern "C" fn get_active_drag_data(
+    this: &Object,
+    _: Sel,
+    other_sequence_number: NSInteger,
+) -> *mut c_void {
+    let window_state = unsafe { get_window_state(this) };
+    let lock = window_state.lock();
+    if let Some(DragState::Active {
+        drag,
+        sequence_number,
+        ..
+    }) = &lock.active_drag_state
+    {
+        if *sequence_number == other_sequence_number {
+            return Box::into_raw(Box::new(drag.clone())) as *mut c_void;
+        }
+    }
+
+    std::ptr::null_mut()
 }
 
 async fn synthetic_drag(
@@ -2528,22 +2905,19 @@ async fn synthetic_drag(
     }
 }
 
-/// Sends the specified FileDropEvent using `PlatformInput::FileDrop` to the window
+/// Sends the specified NativeDropEvent using `PlatformInput::NativeDrop` to the window
 /// state and updates the window state according to the event passed.
-fn send_file_drop_event(
-    window_state: Arc<Mutex<MacWindowState>>,
-    file_drop_event: FileDropEvent,
-) -> bool {
+fn send_drop_event(window_state: Arc<Mutex<MacWindowState>>, drop_event: NativeDropEvent) -> bool {
     let mut window_state = window_state.lock();
     let window_event_callback = window_state.event_callback.as_mut();
     if let Some(mut callback) = window_event_callback {
-        let external_files_dragged = match file_drop_event {
-            FileDropEvent::Entered { .. } => Some(true),
-            FileDropEvent::Exited => Some(false),
+        let external_files_dragged = match drop_event {
+            NativeDropEvent::Entered { .. } => Some(true),
+            NativeDropEvent::Exited => Some(false),
             _ => None,
         };
 
-        callback(PlatformInput::FileDrop(file_drop_event));
+        callback(PlatformInput::NativeDrop(drop_event));
 
         if let Some(external_files_dragged) = external_files_dragged {
             window_state.external_files_dragged = external_files_dragged;
@@ -2552,6 +2926,27 @@ fn send_file_drop_event(
     } else {
         false
     }
+}
+
+unsafe fn window_point_is_outside(window: id, location_in_window: NSPoint) -> bool {
+    let frame = unsafe { NSView::frame(NSWindow::contentView(window)) };
+    frame.origin.x > location_in_window.x
+        || frame.origin.y > location_in_window.y
+        || frame.origin.x + frame.size.width < location_in_window.x
+        || frame.origin.y + frame.size.height < location_in_window.y
+}
+
+unsafe fn set_dragging_session_frames(session: id, view: id, f: unsafe fn(id)) {
+    let class: *const Class = class!(NSPasteboardItem);
+    let classes: id = unsafe { NSArray::arrayWithObject(nil, class as id) };
+    let search_options = unsafe { NSDictionary::dictionary(nil) };
+
+    let block = ConcreteBlock::new(move |item: id, _idx: NSInteger, _stop: *mut BOOL| {
+        unsafe { f(item) };
+    });
+    let block = block.copy();
+
+    let _: () = msg_send![session, enumerateDraggingItemsWithOptions: 0 forView: view classes: classes searchOptions: search_options usingBlock: block];
 }
 
 fn drag_event_position(window_state: &Mutex<MacWindowState>, dragging_info: id) -> Point<Pixels> {
