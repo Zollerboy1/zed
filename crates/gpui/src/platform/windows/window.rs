@@ -999,13 +999,13 @@ impl IDropTarget_Impl for WindowsDragDropHandler_Impl {
                     .ok()
                     .log_err();
                 let scale_factor = self.0.state.scale_factor.get();
-                let input = PlatformInput::FileDrop(FileDropEvent::Entered {
+                let input = PlatformInput::NativeDrop(NativeDropEvent::Entered {
                     position: logical_point(
                         cursor_position.x as f32,
                         cursor_position.y as f32,
                         scale_factor,
                     ),
-                    paths: ExternalPaths(paths),
+                    data: NativeDropData::FromExternal(ExternalPaths(paths)),
                 });
                 self.handle_drag_drop(input);
             } else {
@@ -1037,7 +1037,7 @@ impl IDropTarget_Impl for WindowsDragDropHandler_Impl {
                 .log_err();
         }
         let scale_factor = self.0.state.scale_factor.get();
-        let input = PlatformInput::FileDrop(FileDropEvent::Pending {
+        let input = PlatformInput::NativeDrop(NativeDropEvent::Pending {
             position: logical_point(
                 cursor_position.x as f32,
                 cursor_position.y as f32,
@@ -1053,7 +1053,7 @@ impl IDropTarget_Impl for WindowsDragDropHandler_Impl {
         unsafe {
             self.0.drop_target_helper.DragLeave().log_err();
         }
-        let input = PlatformInput::FileDrop(FileDropEvent::Exited);
+        let input = PlatformInput::NativeDrop(NativeDropEvent::Exited);
         self.handle_drag_drop(input);
 
         Ok(())
@@ -1079,7 +1079,7 @@ impl IDropTarget_Impl for WindowsDragDropHandler_Impl {
                 .log_err();
         }
         let scale_factor = self.0.state.scale_factor.get();
-        let input = PlatformInput::FileDrop(FileDropEvent::Submit {
+        let input = PlatformInput::NativeDrop(NativeDropEvent::Submit {
             position: logical_point(
                 cursor_position.x as f32,
                 cursor_position.y as f32,

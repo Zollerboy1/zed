@@ -75,9 +75,9 @@ use super::{
 
 use crate::{
     AnyWindowHandle, Bounds, Capslock, CursorStyle, DOUBLE_CLICK_INTERVAL, DevicePixels, DisplayId,
-    FileDropEvent, ForegroundExecutor, KeyDownEvent, KeyUpEvent, Keystroke, LinuxCommon,
-    LinuxKeyboardLayout, Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Pixels, PlatformDisplay,
+    ForegroundExecutor, KeyDownEvent, KeyUpEvent, Keystroke, LinuxCommon, LinuxKeyboardLayout,
+    Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    MouseUpEvent, NativeDropData, NativeDropEvent, NavigationDirection, Pixels, PlatformDisplay,
     PlatformInput, PlatformKeyboardLayout, Point, ResultExt as _, SCROLL_LINES, ScrollDelta,
     ScrollWheelEvent, Size, TouchPhase, WindowParams, point, profiler, px, size,
 };
@@ -2041,9 +2041,9 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                                 return;
                             }
 
-                            let input = PlatformInput::FileDrop(FileDropEvent::Entered {
+                            let input = PlatformInput::NativeDrop(NativeDropEvent::Entered {
                                 position,
-                                paths: crate::ExternalPaths(paths),
+                                data: NativeDropData::FromExternal(crate::ExternalPaths(paths)),
                             });
 
                             let client = this.get_client();
@@ -2065,7 +2065,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                 let position = Point::new(x.into(), y.into());
                 state.drag.position = position;
 
-                let input = PlatformInput::FileDrop(FileDropEvent::Pending { position });
+                let input = PlatformInput::NativeDrop(NativeDropEvent::Pending { position });
                 drop(state);
                 drag_window.handle_input(input);
             }
@@ -2079,7 +2079,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                 state.drag.data_offer = None;
                 state.drag.window = None;
 
-                let input = PlatformInput::FileDrop(FileDropEvent::Exited {});
+                let input = PlatformInput::NativeDrop(NativeDropEvent::Exited {});
                 drop(state);
                 drag_window.handle_input(input);
             }
@@ -2094,7 +2094,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                 state.drag.data_offer = None;
                 state.drag.window = None;
 
-                let input = PlatformInput::FileDrop(FileDropEvent::Submit {
+                let input = PlatformInput::NativeDrop(NativeDropEvent::Submit {
                     position: state.drag.position,
                 });
                 drop(state);

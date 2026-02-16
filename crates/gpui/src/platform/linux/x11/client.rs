@@ -60,9 +60,9 @@ use crate::platform::{
     wgpu::WgpuContext,
 };
 use crate::{
-    AnyWindowHandle, Bounds, ClipboardItem, CursorStyle, DisplayId, FileDropEvent, Keystroke,
-    LinuxKeyboardLayout, Modifiers, ModifiersChangedEvent, MouseButton, Pixels, Platform,
-    PlatformDisplay, PlatformInput, PlatformKeyboardLayout, Point, RequestFrameOptions,
+    AnyWindowHandle, Bounds, ClipboardItem, CursorStyle, DisplayId, Keystroke, LinuxKeyboardLayout,
+    Modifiers, ModifiersChangedEvent, MouseButton, NativeDropData, NativeDropEvent, Pixels,
+    Platform, PlatformDisplay, PlatformInput, PlatformKeyboardLayout, Point, RequestFrameOptions,
     ScrollDelta, Size, TouchPhase, WindowParams, X11Window, modifiers_from_xinput_info, point, px,
 };
 
@@ -805,9 +805,10 @@ impl X11Client {
                 } else if event.type_ == state.atoms.XdndLeave {
                     let position = state.xdnd_state.position;
                     drop(state);
-                    window
-                        .handle_input(PlatformInput::FileDrop(FileDropEvent::Pending { position }));
-                    window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
+                    window.handle_input(PlatformInput::NativeDrop(NativeDropEvent::Pending {
+                        position,
+                    }));
+                    window.handle_input(PlatformInput::NativeDrop(NativeDropEvent::Exited {}));
                     self.0.borrow_mut().xdnd_state = Xdnd::default();
                 } else if event.type_ == state.atoms.XdndPosition {
                     if let Ok(pos) = get_reply(
@@ -839,8 +840,9 @@ impl X11Client {
                     );
                     let position = state.xdnd_state.position;
                     drop(state);
-                    window
-                        .handle_input(PlatformInput::FileDrop(FileDropEvent::Pending { position }));
+                    window.handle_input(PlatformInput::NativeDrop(NativeDropEvent::Pending {
+                        position,
+                    }));
                 } else if event.type_ == state.atoms.XdndDrop {
                     xdnd_send_finished(
                         &state.xcb_connection,
@@ -850,8 +852,9 @@ impl X11Client {
                     );
                     let position = state.xdnd_state.position;
                     drop(state);
-                    window
-                        .handle_input(PlatformInput::FileDrop(FileDropEvent::Submit { position }));
+                    window.handle_input(PlatformInput::NativeDrop(NativeDropEvent::Submit {
+                        position,
+                    }));
                     self.0.borrow_mut().xdnd_state = Xdnd::default();
                 }
             }
@@ -879,9 +882,9 @@ impl X11Client {
                         .filter_map(|path| Url::parse(path).log_err())
                         .filter_map(|url| url.to_file_path().log_err())
                         .collect();
-                    let input = PlatformInput::FileDrop(FileDropEvent::Entered {
+                    let input = PlatformInput::NativeDrop(NativeDropEvent::Entered {
                         position: state.xdnd_state.position,
-                        paths: crate::ExternalPaths(paths),
+                        data: NativeDropData::FromExternal(crate::ExternalPaths(paths)),
                     });
                     drop(state);
                     window.handle_input(input);
