@@ -604,17 +604,17 @@ pub enum NativeDropEvent {
         /// The data of the drag.
         data: NativeDropData,
     },
-    /// The files are being dragged over the window
+    /// The drag has moved over the window.
     Pending {
         /// The position of the mouse relative to the window.
         position: Point<Pixels>,
     },
-    /// The files have been dropped onto the window.
+    /// The drag has been dropped onto the window.
     Submit {
         /// The position of the mouse relative to the window.
         position: Point<Pixels>,
     },
-    /// The user has stopped dragging the files over the window.
+    /// The user has stopped dragging over the window.
     Exited,
 }
 
