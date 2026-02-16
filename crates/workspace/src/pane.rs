@@ -3814,6 +3814,15 @@ impl Pane {
         {
             return;
         }
+
+        if !dragged_selection.originates_from(&self.workspace) {
+            if let Some(paths) = dragged_selection.project_paths(cx) {
+                self.handle_external_paths_drop_impl(&paths, window, cx);
+            }
+
+            return;
+        }
+
         self.handle_project_entry_drop(
             &dragged_selection.active_selection.entry_id,
             dragged_onto,
@@ -3910,9 +3919,18 @@ impl Pane {
         {
             return;
         }
+        self.handle_external_paths_drop_impl(paths.paths(), window, cx);
+    }
+
+    fn handle_external_paths_drop_impl(
+        &mut self,
+        paths: &[PathBuf],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mut to_pane = cx.entity();
         let mut split_direction = self.drag_split_direction;
-        let paths = paths.paths().to_vec();
+        let paths = paths.to_vec();
         let is_remote = self
             .workspace
             .update(cx, |workspace, cx| {
